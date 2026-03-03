@@ -6,6 +6,7 @@ import {
   getCurrentWeekIndex,
   isRoundComplete,
   recalculateDatesAfterSkip,
+  undoSkip,
   formatDateKr,
   formatDateShort,
 } from './engine.js';
@@ -167,6 +168,14 @@ function render() {
       break;
     case 'changelog':
       main.innerHTML = renderChangelog();
+      document.querySelectorAll('[data-delete-log]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.deleteLog, 10);
+          if (!confirm('이 로그를 삭제하시겠습니까?')) return;
+          store.removeChangelogEntry(idx);
+          render();
+        });
+      });
       break;
     case 'guide':
       main.innerHTML = renderGuide();
@@ -514,22 +523,27 @@ function renderChangelog() {
         </h2>
       </div>
       <div class="divide-y divide-line">
-        ${log.map((entry) => {
+        ${log.map((entry, idx) => {
           const d = new Date(entry.timestamp);
           const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
           const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
           const icon = entry.type === 'round_created' ? '🔄' : entry.type === 'swap' ? '🔀'
             : entry.type === 'member_added' ? '➕' : entry.type === 'member_removed' ? '➖'
-            : entry.type === 'skip' ? '⏭️' : '📝';
+            : entry.type === 'skip' ? '⏭️' : entry.type === 'skip_undo' ? '↩️' : '📝';
           return `
-          <div class="px-5 py-3">
+          <div class="px-5 py-3 group">
             <div class="flex items-start gap-3">
               <span class="text-base mt-0.5">${icon}</span>
               <div class="min-w-0 flex-1">
                 <p class="text-sm text-content-primary">${entry.message}</p>
                 ${entry.detail ? `<p class="text-xs text-content-tertiary mt-0.5">${entry.detail}</p>` : ''}
               </div>
-              <span class="text-xs font-mono text-content-tertiary shrink-0">${dateStr} ${timeStr}</span>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="text-xs font-mono text-content-tertiary">${dateStr} ${timeStr}</span>
+                <button data-delete-log="${idx}" class="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded text-content-tertiary hover:text-red-400 hover:bg-red-500/10 transition-all" title="삭제">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+              </div>
             </div>
           </div>`;
         }).join('')}
@@ -623,6 +637,9 @@ function renderAdmin() {
                 </div>
               </div>
               <div class="flex items-center gap-1 shrink-0">
+                <button data-edit-member="${m.id}" class="px-2 py-1 text-xs rounded border border-line hover:border-line-hover hover:bg-surface-tertiary text-content-tertiary transition-colors" title="수정">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                </button>
                 ${m.isActive
                   ? `<button data-toggle-exempt="${m.id}" class="px-2 py-1 text-xs rounded border border-line hover:border-line-hover hover:bg-surface-tertiary text-content-secondary transition-colors">${m.isExempt ? '면제 해제' : '면제'}</button>
                      <button data-deactivate="${m.id}" class="px-2 py-1 text-xs rounded border border-line hover:border-red-500/30 hover:text-red-400 text-content-tertiary transition-colors">비활성</button>`
@@ -662,6 +679,13 @@ function renderAdmin() {
                 <span class="text-sm text-freepass">${round.freePassId ? store.getMember(round.freePassId)?.nickname || round.freePassId : '없음'}</span>
               </div>
             </div>
+            ${round._preSkipSnapshot ? `
+            <div class="mt-4 p-3 rounded-lg border border-freepass/30 bg-freepass/5">
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-freepass">W${round.weeks[round._preSkipSnapshot.weekIndex].weekNumber} 스킵됨</span>
+                <button id="btn-undo-skip" class="text-xs px-3 py-1 rounded-lg border border-freepass/40 text-freepass hover:bg-freepass/10 transition-colors">스킵 취소</button>
+              </div>
+            </div>` : ''}
             <div class="flex gap-2 mt-5">
               <button id="btn-skip-week" class="flex-1 py-2 text-sm rounded-lg border border-line hover:border-line-hover hover:bg-surface-tertiary text-content-secondary transition-colors">이번 주 스킵</button>
               <button id="btn-new-round" class="flex-1 py-2 text-sm rounded-lg bg-accent text-surface-primary font-medium hover:bg-accent-hover transition-colors">새 라운드 생성</button>
@@ -723,7 +747,10 @@ function renderAdmin() {
             <label class="text-xs text-content-secondary block mb-1.5">공지 채널</label>
             <input id="input-channel" type="text" value="${config.slackChannel}" class="w-full bg-surface-primary border border-line rounded-lg px-3 py-2.5 text-sm text-content-primary placeholder:text-content-tertiary focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-colors" />
           </div>
-          <button id="btn-save-config" class="w-full py-2.5 text-sm rounded-lg bg-accent text-surface-primary font-medium hover:bg-accent-hover transition-colors">저장</button>
+          <div class="flex gap-2">
+            <button id="btn-save-config" class="flex-1 py-2.5 text-sm rounded-lg bg-accent text-surface-primary font-medium hover:bg-accent-hover transition-colors">저장</button>
+            <button id="btn-test-slack" class="py-2.5 px-4 text-sm rounded-lg border border-line hover:border-line-hover hover:bg-surface-tertiary text-content-secondary transition-colors">테스트 전송</button>
+          </div>
         </div>
       </div>
 
@@ -780,6 +807,14 @@ function bindAdminEvents() {
     });
   });
 
+  // Edit member
+  document.querySelectorAll('[data-edit-member]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const member = store.getMember(btn.dataset.editMember);
+      if (member) openEditMemberModal(member);
+    });
+  });
+
   // Add member
   document.getElementById('btn-add-member')?.addEventListener('click', openAddMemberModal);
 
@@ -798,6 +833,25 @@ function bindAdminEvents() {
       type: 'skip',
       message: `W${week.weekNumber} 스킵 — 이후 주차 날짜 이월`,
       detail: `${formatDateKr(week.date)} (사유: 수동 스킵)`,
+    });
+    updateWeekStatuses();
+    render();
+  });
+
+  // Undo skip
+  document.getElementById('btn-undo-skip')?.addEventListener('click', () => {
+    const round = store.getCurrentRound();
+    if (!round) return;
+    const snapshot = round._preSkipSnapshot;
+    if (!snapshot) return;
+    const weekNum = round.weeks[snapshot.weekIndex].weekNumber;
+    if (!confirm(`W${weekNum} 스킵을 취소하시겠습니까?\n날짜가 원래대로 복원됩니다.`)) return;
+
+    undoSkip(round);
+    store.updateRound(round);
+    store.addChangelogEntry({
+      type: 'skip_undo',
+      message: `W${weekNum} 스킵 취소 — 날짜 복원`,
     });
     updateWeekStatuses();
     render();
@@ -823,6 +877,53 @@ function bindAdminEvents() {
     store.setConfig(config);
     store.addChangelogEntry({ type: 'config', message: '알림 설정 저장됨' });
     showToast('설정이 저장되었습니다.');
+  });
+
+  // Test Slack webhook
+  document.getElementById('btn-test-slack')?.addEventListener('click', async () => {
+    const webhookUrl = document.getElementById('input-webhook')?.value?.trim();
+    if (!webhookUrl) {
+      showToast('Webhook URL을 먼저 입력해주세요.');
+      return;
+    }
+
+    const btn = document.getElementById('btn-test-slack');
+    btn.textContent = '전송 중...';
+    btn.disabled = true;
+
+    try {
+      const round = store.getCurrentRound();
+      const currentIdx = round ? getCurrentWeekIndex(round) : -1;
+      const week = round?.weeks[currentIdx];
+      const m1 = week ? store.getMember(week.memberIds[0]) : null;
+      const m2 = week ? store.getMember(week.memberIds[1]) : null;
+
+      const text = [
+        '🧹 *[테스트] 청소 당번 알림*',
+        '',
+        `이번 주 당번: ${m1?.nickname || '미정'} & ${m2?.nickname || '미정'}`,
+        `날짜: ${week ? formatDateKr(week.date) : '미정'}`,
+        '',
+        '_이 메시지는 Cleaning Board에서 보낸 테스트 알림입니다._',
+      ].join('\n');
+
+      const res = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      if (res.ok) {
+        showToast('테스트 메시지가 전송되었습니다!');
+      } else {
+        showToast(`전송 실패 (HTTP ${res.status})`);
+      }
+    } catch (e) {
+      showToast(`전송 실패: ${e.message}`);
+    } finally {
+      btn.textContent = '테스트 전송';
+      btn.disabled = false;
+    }
   });
 
   // Holiday management
@@ -950,6 +1051,89 @@ function openAddMemberModal() {
     backdrop.remove();
     render();
     showToast(`${nickname}이(가) 추가되었습니다.`);
+  });
+}
+
+function openEditMemberModal(member) {
+  const emojis = ['😀', '😎', '🤖', '👻', '🐱', '🐶', '🦊', '🐻', '🐼', '🐨', '🐸', '🌟', '⚡', '🔥', '💎', '🎯',
+    '🦸', '👦', '🎨', '🌿', '🎸', '🌸', '🌊', '🎮', '🏄', '🦋', '🌙', '💫', '☄️', '🧸', '🌈'];
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4';
+  backdrop.innerHTML = `
+    <div class="bg-surface-elevated w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl border border-line">
+      <div class="px-5 py-4 border-b border-line flex items-center justify-between">
+        <h3 class="font-semibold text-content-primary">멤버 수정</h3>
+        <button id="close-edit" class="text-content-tertiary hover:text-content-primary transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="p-5 space-y-4">
+        <div>
+          <label class="text-xs text-content-secondary block mb-1.5">닉네임 (한글)</label>
+          <input id="edit-nickname" type="text" value="${member.nickname}" class="w-full bg-surface-primary border border-line rounded-lg px-3 py-2.5 text-sm text-content-primary focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-colors" />
+        </div>
+        <div>
+          <label class="text-xs text-content-secondary block mb-1.5">이름 (영문)</label>
+          <input id="edit-name-en" type="text" value="${member.nameEn}" class="w-full bg-surface-primary border border-line rounded-lg px-3 py-2.5 text-sm text-content-primary focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-colors" />
+        </div>
+        <div>
+          <label class="text-xs text-content-secondary block mb-1.5">이름 (한글)</label>
+          <input id="edit-name-kr" type="text" value="${member.nameKr}" class="w-full bg-surface-primary border border-line rounded-lg px-3 py-2.5 text-sm text-content-primary focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-colors" />
+        </div>
+        <div>
+          <label class="text-xs text-content-secondary block mb-1.5">역할</label>
+          <input id="edit-role" type="text" value="${member.role || ''}" class="w-full bg-surface-primary border border-line rounded-lg px-3 py-2.5 text-sm text-content-primary placeholder:text-content-tertiary focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-colors" />
+        </div>
+        <div>
+          <label class="text-xs text-content-secondary block mb-1.5">아바타 이모지</label>
+          <div class="flex flex-wrap gap-2">
+            ${[...new Set([member.avatarEmoji, ...emojis])].map((e) => `<button data-emoji="${e}" class="emoji-btn w-10 h-10 rounded-lg border ${e === member.avatarEmoji ? 'border-accent bg-accent/15' : 'border-line hover:border-line-hover hover:bg-surface-tertiary'} flex items-center justify-center text-lg transition-colors">${e}</button>`).join('')}
+          </div>
+        </div>
+        <button id="btn-confirm-edit" class="w-full py-2.5 text-sm rounded-lg bg-accent text-surface-primary font-medium hover:bg-accent-hover transition-colors mt-2">저장</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+
+  let selectedEmoji = member.avatarEmoji;
+  backdrop.querySelectorAll('.emoji-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      backdrop.querySelectorAll('.emoji-btn').forEach((b) => {
+        b.classList.remove('border-accent', 'bg-accent/15');
+        b.classList.add('border-line');
+      });
+      btn.classList.add('border-accent', 'bg-accent/15');
+      btn.classList.remove('border-line');
+      selectedEmoji = btn.dataset.emoji;
+    });
+  });
+
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
+  backdrop.querySelector('#close-edit')?.addEventListener('click', () => backdrop.remove());
+
+  backdrop.querySelector('#btn-confirm-edit')?.addEventListener('click', () => {
+    const nickname = document.getElementById('edit-nickname')?.value.trim();
+    const nameEn = document.getElementById('edit-name-en')?.value.trim();
+    const nameKr = document.getElementById('edit-name-kr')?.value.trim();
+    const role = document.getElementById('edit-role')?.value.trim() || '';
+
+    if (!nickname || !nameEn || !nameKr) {
+      showToast('닉네임, 영문 이름, 한글 이름은 필수입니다.');
+      return;
+    }
+
+    store.updateMember(member.id, { nickname, nameEn, nameKr, role, avatarEmoji: selectedEmoji });
+    store.addChangelogEntry({
+      type: 'member_updated',
+      message: `${member.nickname} 정보 수정`,
+      detail: `닉네임: ${nickname}, 영문: ${nameEn}, 역할: ${role || '없음'}`,
+    });
+
+    backdrop.remove();
+    render();
+    showToast(`${nickname} 정보가 수정되었습니다.`);
   });
 }
 

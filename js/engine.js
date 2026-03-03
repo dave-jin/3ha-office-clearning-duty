@@ -205,6 +205,13 @@ export function generateRound(members, pairingHistory, previousRound, roundNumbe
 export function recalculateDatesAfterSkip(round, skippedWeekIndex, holidays) {
   const holidayList = holidays || [];
 
+  // Save snapshot before modifying (for undo)
+  round._preSkipSnapshot = {
+    weekIndex: skippedWeekIndex,
+    weeks: round.weeks.map((w) => ({ date: w.date, isSkipped: w.isSkipped, status: w.status })),
+    endDate: round.endDate,
+  };
+
   // The skipped week keeps its date but is marked skipped
   round.weeks[skippedWeekIndex].isSkipped = true;
   round.weeks[skippedWeekIndex].status = 'skipped';
@@ -229,6 +236,25 @@ export function recalculateDatesAfterSkip(round, skippedWeekIndex, holidays) {
   round.endDate = lastWeek.date;
 
   return round;
+}
+
+/**
+ * Undo the last skip by restoring the pre-skip snapshot.
+ * Returns true if undo was successful, false if no snapshot exists.
+ */
+export function undoSkip(round) {
+  const snapshot = round._preSkipSnapshot;
+  if (!snapshot) return false;
+
+  snapshot.weeks.forEach((saved, i) => {
+    round.weeks[i].date = saved.date;
+    round.weeks[i].isSkipped = saved.isSkipped;
+    round.weeks[i].status = saved.status;
+  });
+  round.endDate = snapshot.endDate;
+  delete round._preSkipSnapshot;
+
+  return true;
 }
 
 // --- Week status helpers ---

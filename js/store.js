@@ -286,6 +286,12 @@ export const store = {
     }
     persist();
   },
+  removeChangelogEntry(index) {
+    if (index >= 0 && index < _data.changelog.length) {
+      _data.changelog.splice(index, 1);
+      persist();
+    }
+  },
 
   // Config
   getConfig() {
