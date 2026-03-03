@@ -8,15 +8,39 @@ Office cleaning duty board (사무실 청소 당번 보드) — a web app that a
 
 Core concept: **2-person teams only** (never 3-person). When member count is odd, one person gets a "free pass" (프리패스) per round and is prioritized for Week 1 of the next round.
 
-## Tech Stack (from PRD)
+## Deployment
 
-- **Frontend:** HTML + Tailwind CSS + Vanilla JS (no build step, static site)
-- **Data:** JSON files stored in the repo (`/data/` directory)
-- **Hosting:** GitHub Pages or Cloudflare Pages
-- **Notifications:** Slack Incoming Webhook
+- **URL:** https://3ha-office-clearning-duty.vercel.app
+- **GitHub:** https://github.com/dave-jin/3ha-office-clearning-duty
+- **Hosting:** Vercel (auto-deploys from `main` branch)
+
+## Tech Stack
+
+- **Frontend:** HTML + Tailwind CSS CDN + Vanilla JS ES modules (no build step)
+- **Data:** localStorage (seeded with initial member data on first visit)
+- **Notifications:** Slack Incoming Webhook via GitHub Actions
 - **Scheduler:** GitHub Actions cron (weekly Thursday 10:00 KST)
-- **Icons:** Lucide Icons (stroke-width: 1.5px)
+- **Icons:** Inline SVG (Lucide-style, stroke-width: 1.5px)
 - **Fonts:** Inter (en) + Pretendard (kr) + JetBrains Mono (data/code)
+
+## Project Structure
+
+```
+index.html          # Single-page app entry point
+styles.css          # Custom CSS (scrollbar, animations)
+js/store.js         # localStorage CRUD + initial member data + checklist template
+js/engine.js        # Round assignment algorithm (Fisher-Yates, free pass, pairing validation)
+js/app.js           # UI rendering, event handling, tab navigation
+vercel.json         # SPA rewrite rules
+.github/workflows/  # Slack notification cron (requires SLACK_WEBHOOK_URL secret)
+```
+
+## Local Development
+
+```
+python3 -m http.server 8080
+# Then open http://localhost:8080
+```
 
 ## Design System
 
