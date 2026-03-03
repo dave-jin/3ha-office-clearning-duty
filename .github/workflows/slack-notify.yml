@@ -1,0 +1,35 @@
+name: Weekly Cleaning Notification
+
+on:
+  schedule:
+    # Every Thursday at 01:00 UTC (10:00 KST)
+    - cron: '0 1 * * 4'
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Send Slack Notification
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          BOARD_URL: ${{ vars.BOARD_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set. Skipping."
+            exit 0
+          fi
+
+          BOARD_LINK="${BOARD_URL:-https://your-app.vercel.app}"
+
+          # Read current round data from localStorage is not possible in CI,
+          # so this workflow sends a generic reminder with a link to the board.
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{
+              \"text\": \"🧹 *[청소 당번 알림]* 이번 주 청소 당번을 확인해 주세요!\\n\\n📅 오늘은 청소일입니다\\n⏰ 오후 4:00 ~ 5:00 (15-20분 내 완료 권장)\\n\\n🔗 <${BOARD_LINK}|청소 보드에서 확인하기>\\n\\n💡 출장/휴가 시 보드에서 대체자를 지정해 주세요!\"
+            }" \
+            "$SLACK_WEBHOOK_URL"
+
+          echo "Slack notification sent."
