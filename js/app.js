@@ -910,13 +910,29 @@ function bindAdminEvents() {
       const m1 = week ? store.getMember(week.memberIds[0]) : null;
       const m2 = week ? store.getMember(week.memberIds[1]) : null;
 
+      const name1 = m1 ? `${m1.avatarEmoji} ${m1.nickname}` : '미정';
+      const name2 = m2 ? `${m2.avatarEmoji} ${m2.nickname}` : '미정';
+      const dateStr = week ? formatDateKr(week.date) : '미정';
+
       const text = [
-        '🧹 *[테스트] 청소 당번 알림*',
+        '🧹 *청소합시다!*  _[테스트]_',
         '',
-        `이번 주 당번: ${m1?.nickname || '미정'} & ${m2?.nickname || '미정'}`,
-        `날짜: ${week ? formatDateKr(week.date) : '미정'}`,
+        '두구두구... 🥁 오늘의 청소 당번 발표!',
         '',
-        '_이 메시지는 Cleaning Board에서 보낸 테스트 알림입니다._',
+        `👥 *오늘의 청소 당번:*  ${name1}  &  ${name2}`,
+        `📅 ${dateStr}  |  ⏰ 오후 4:00 ~ 5:00`,
+        '',
+        '📋 *오늘의 체크리스트:*',
+        '    • 바닥 청소 (진공청소기 + 물걸레)',
+        '    • 쓰레기통 비우기 + 비닐 교체',
+        '    • 회의실 정리 (책상/의자/보드)',
+        '    • 공용 집기 닦기',
+        '',
+        `🔗 <https://3ha-office-clearning-duty.vercel.app?tab=checklist|체크리스트 확인하고 완료 체크하기>`,
+        '',
+        '💪 화이팅! 청소 후 뿌듯함은 덤!',
+        '',
+        '_이 메시지는 세시간전 청소 보드에서 보낸 테스트 알림입니다._',
       ].join('\n');
 
       const res = await fetch('/api/slack', {
