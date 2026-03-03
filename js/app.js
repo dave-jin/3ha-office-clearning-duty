@@ -7,6 +7,7 @@ import {
   isRoundComplete,
   recalculateDatesAfterSkip,
   undoSkip,
+  forceUnskipWeek,
   formatDateKr,
   formatDateShort,
 } from './engine.js';
@@ -40,16 +41,11 @@ async function init() {
     }
   });
 
-  if (store.needsFirstRound()) {
-    createNewRound();
-  }
-
-  // Check if current round is complete
+  // Check if current round is complete (don't auto-create new round)
   const round = store.getCurrentRound();
   if (round && isRoundComplete(round)) {
     round.status = 'completed';
     store.updateRound(round);
-    createNewRound();
   }
 
   updateWeekStatuses();
@@ -57,7 +53,7 @@ async function init() {
   render();
 }
 
-function createNewRound() {
+function createNewRound(startDate) {
   const members = store.getMembers();
   const pairingHistory = store.getPairingHistory();
   const previousRound = store.getPreviousRound();
@@ -69,7 +65,8 @@ function createNewRound() {
     pairingHistory,
     previousRound,
     roundNumber,
-    holidays
+    holidays,
+    startDate
   );
 
   store.addRound(round);
@@ -190,7 +187,18 @@ function render() {
 // ── Board View ──
 function renderBoard() {
   const round = store.getCurrentRound();
-  if (!round) return '<p class="text-content-secondary p-8">라운드 데이터가 없습니다.</p>';
+  if (!round || round.status === 'completed') {
+    return `
+      <div class="bg-surface-secondary rounded-xl border border-line p-8 text-center">
+        <div class="text-4xl mb-4">🧹</div>
+        <h2 class="text-lg font-semibold text-content-primary mb-2">라운드를 시작하세요</h2>
+        <p class="text-sm text-content-secondary mb-6">아직 활성 라운드가 없습니다. 새 라운드를 생성해주세요.</p>
+        <button id="btn-create-first-round" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent text-surface-primary font-medium text-sm hover:bg-accent-hover transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          새 라운드 생성
+        </button>
+      </div>`;
+  }
 
   const currentIdx = getCurrentWeekIndex(round);
   const currentWeek = round.weeks[currentIdx];
@@ -343,6 +351,7 @@ function bindBoardEvents() {
     });
   });
   document.getElementById('btn-swap')?.addEventListener('click', () => openSwapModal());
+  document.getElementById('btn-create-first-round')?.addEventListener('click', () => openNewRoundModal());
 }
 
 // ── Swap Modal ──
@@ -679,13 +688,17 @@ function renderAdmin() {
                 <span class="text-sm text-freepass">${round.freePassId ? store.getMember(round.freePassId)?.nickname || round.freePassId : '없음'}</span>
               </div>
             </div>
-            ${round._preSkipSnapshot ? `
-            <div class="mt-4 p-3 rounded-lg border border-freepass/30 bg-freepass/5">
-              <div class="flex items-center justify-between">
-                <span class="text-xs text-freepass">W${round.weeks[round._preSkipSnapshot.weekIndex].weekNumber} 스킵됨</span>
-                <button id="btn-undo-skip" class="text-xs px-3 py-1 rounded-lg border border-freepass/40 text-freepass hover:bg-freepass/10 transition-colors">스킵 취소</button>
-              </div>
-            </div>` : ''}
+            ${(() => {
+              const skippedWeeks = round.weeks.filter(w => w.isSkipped);
+              if (!skippedWeeks.length) return '';
+              return skippedWeeks.map(w => `
+              <div class="mt-4 p-3 rounded-lg border border-freepass/30 bg-freepass/5">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-freepass">W${w.weekNumber} 스킵됨 (${w.date})</span>
+                  <button data-unskip-week="${w.weekNumber - 1}" class="text-xs px-3 py-1 rounded-lg border border-freepass/40 text-freepass hover:bg-freepass/10 transition-colors">스킵 취소</button>
+                </div>
+              </div>`).join('');
+            })()}
             <div class="flex gap-2 mt-5">
               <button id="btn-skip-week" class="flex-1 py-2 text-sm rounded-lg border border-line hover:border-line-hover hover:bg-surface-tertiary text-content-secondary transition-colors">이번 주 스킵</button>
               <button id="btn-new-round" class="flex-1 py-2 text-sm rounded-lg bg-accent text-surface-primary font-medium hover:bg-accent-hover transition-colors">새 라운드 생성</button>
@@ -838,35 +851,34 @@ function bindAdminEvents() {
     render();
   });
 
-  // Undo skip
-  document.getElementById('btn-undo-skip')?.addEventListener('click', () => {
-    const round = store.getCurrentRound();
-    if (!round) return;
-    const snapshot = round._preSkipSnapshot;
-    if (!snapshot) return;
-    const weekNum = round.weeks[snapshot.weekIndex].weekNumber;
-    if (!confirm(`W${weekNum} 스킵을 취소하시겠습니까?\n날짜가 원래대로 복원됩니다.`)) return;
+  // Undo skip (supports both snapshot-based and force unskip)
+  document.querySelectorAll('[data-unskip-week]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const round = store.getCurrentRound();
+      if (!round) return;
+      const weekIdx = parseInt(btn.dataset.unskipWeek, 10);
+      const weekNum = round.weeks[weekIdx].weekNumber;
+      if (!confirm(`W${weekNum} 스킵을 취소하시겠습니까?\n날짜가 재계산됩니다.`)) return;
 
-    undoSkip(round);
-    store.updateRound(round);
-    store.addChangelogEntry({
-      type: 'skip_undo',
-      message: `W${weekNum} 스킵 취소 — 날짜 복원`,
+      if (round._preSkipSnapshot && round._preSkipSnapshot.weekIndex === weekIdx) {
+        undoSkip(round);
+      } else {
+        const holidays = store.getHolidays();
+        forceUnskipWeek(round, weekIdx, holidays);
+      }
+      store.updateRound(round);
+      store.addChangelogEntry({
+        type: 'skip_undo',
+        message: `W${weekNum} 스킵 취소 — 날짜 재계산`,
+      });
+      updateWeekStatuses();
+      render();
     });
-    updateWeekStatuses();
-    render();
   });
 
   // New round
   document.getElementById('btn-new-round')?.addEventListener('click', () => {
-    if (!confirm('새 라운드를 생성하시겠습니까? 현재 라운드가 완료 처리됩니다.')) return;
-    const round = store.getCurrentRound();
-    if (round) {
-      round.status = 'completed';
-      store.updateRound(round);
-    }
-    createNewRound();
-    render();
+    openNewRoundModal();
   });
 
   // Save config
@@ -907,16 +919,17 @@ function bindAdminEvents() {
         '_이 메시지는 Cleaning Board에서 보낸 테스트 알림입니다._',
       ].join('\n');
 
-      const res = await fetch(webhookUrl, {
+      const res = await fetch('/api/slack', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ webhookUrl, text }),
       });
 
       if (res.ok) {
         showToast('테스트 메시지가 전송되었습니다!');
       } else {
-        showToast(`전송 실패 (HTTP ${res.status})`);
+        const err = await res.json().catch(() => ({}));
+        showToast(`전송 실패: ${err.error || `HTTP ${res.status}`}`);
       }
     } catch (e) {
       showToast(`전송 실패: ${e.message}`);
@@ -950,10 +963,10 @@ function bindAdminEvents() {
   });
 
   // Reset
-  document.getElementById('btn-reset')?.addEventListener('click', () => {
+  document.getElementById('btn-reset')?.addEventListener('click', async () => {
     if (!confirm('정말 모든 데이터를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
     if (!confirm('마지막 확인: 모든 라운드, 체크리스트, 변경 이력이 삭제됩니다.')) return;
-    store.reset();
+    await store.reset();
     location.reload();
   });
 }
@@ -1134,6 +1147,57 @@ function openEditMemberModal(member) {
     backdrop.remove();
     render();
     showToast(`${nickname} 정보가 수정되었습니다.`);
+  });
+}
+
+function openNewRoundModal() {
+  const today = new Date().toISOString().split('T')[0];
+  const currentRound = store.getCurrentRound();
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4';
+  backdrop.innerHTML = `
+    <div class="bg-surface-elevated w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl border border-line">
+      <div class="px-5 py-4 border-b border-line flex items-center justify-between">
+        <h3 class="font-semibold text-content-primary">새 라운드 생성</h3>
+        <button id="close-new-round" class="text-content-tertiary hover:text-content-primary transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="p-5 space-y-4">
+        ${currentRound && currentRound.status === 'active' ? `
+          <div class="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+            <p class="text-xs text-yellow-400">현재 Round ${currentRound.number}이 완료 처리됩니다.</p>
+          </div>` : ''}
+        <div>
+          <label class="text-xs text-content-secondary block mb-1.5">시작 날짜 (목요일 기준으로 자동 조정)</label>
+          <input id="round-start-date" type="date" value="${today}" class="w-full bg-surface-primary border border-line rounded-lg px-3 py-2.5 text-sm text-content-primary focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-colors" />
+        </div>
+        <div class="text-xs text-content-tertiary">
+          <p>활성 멤버: ${store.getActiveMembers().length}명</p>
+        </div>
+        <button id="btn-confirm-new-round" class="w-full py-2.5 text-sm rounded-lg bg-accent text-surface-primary font-medium hover:bg-accent-hover transition-colors">라운드 생성</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
+  backdrop.querySelector('#close-new-round')?.addEventListener('click', () => backdrop.remove());
+
+  backdrop.querySelector('#btn-confirm-new-round')?.addEventListener('click', () => {
+    const startDate = document.getElementById('round-start-date')?.value;
+    if (currentRound && currentRound.status === 'active') {
+      currentRound.status = 'completed';
+      store.updateRound(currentRound);
+    }
+    try {
+      createNewRound(startDate || null);
+      backdrop.remove();
+      updateWeekStatuses();
+      render();
+    } catch (e) {
+      showToast(e.message);
+    }
   });
 }
 

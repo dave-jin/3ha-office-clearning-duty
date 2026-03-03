@@ -326,8 +326,8 @@ export const store = {
     return this.getRounds().length === 0;
   },
 
-  // Reset
-  reset() {
+  // Reset — immediately push to API (no debounce) to ensure KV is cleared
+  async reset() {
     _data = {
       members: INITIAL_MEMBERS,
       rounds: [],
@@ -335,8 +335,15 @@ export const store = {
       changelog: [],
       pairing_history: [],
     };
-    persist();
     try { localStorage.removeItem('cleaning_cache'); } catch { /* ignore */ }
+    // Immediate save (bypass debounce) so KV is guaranteed cleared before reload
+    try {
+      await fetch(API_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(_data),
+      });
+    } catch { /* offline — localStorage already cleared */ }
   },
 
   // Constants

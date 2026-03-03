@@ -128,7 +128,7 @@ function generateScheduleDates(startDate, count, holidays) {
 
 // --- Round generation ---
 
-export function generateRound(members, pairingHistory, previousRound, roundNumber, holidays) {
+export function generateRound(members, pairingHistory, previousRound, roundNumber, holidays, customStartDate) {
   const activeMembers = members.filter((m) => m.isActive && !m.isExempt);
   const N = activeMembers.length;
 
@@ -159,11 +159,13 @@ export function generateRound(members, pairingHistory, previousRound, roundNumbe
   }
 
   // Calculate start date
-  const rawStart = previousRound
-    ? getNextThursday(
-        new Date(new Date(previousRound.endDate + 'T00:00:00').getTime() + 86400000)
-      )
-    : getThisOrNextThursday(new Date());
+  const rawStart = customStartDate
+    ? getThisOrNextThursday(new Date(customStartDate + 'T00:00:00'))
+    : previousRound
+      ? getNextThursday(
+          new Date(new Date(previousRound.endDate + 'T00:00:00').getTime() + 86400000)
+        )
+      : getThisOrNextThursday(new Date());
 
   // Generate dates skipping holidays
   const holidayList = holidays || [];
@@ -255,6 +257,36 @@ export function undoSkip(round) {
   delete round._preSkipSnapshot;
 
   return true;
+}
+
+/**
+ * Force-unskip a specific week (for cases without a snapshot).
+ * Recalculates dates from the unskipped week forward.
+ */
+export function forceUnskipWeek(round, weekIndex, holidays) {
+  const holidayList = holidays || [];
+  round.weeks[weekIndex].isSkipped = false;
+  round.weeks[weekIndex].status = 'upcoming';
+
+  // Recalculate dates from this week forward based on consecutive Thursdays
+  let prevDate = weekIndex > 0
+    ? new Date(round.weeks[weekIndex - 1].date + 'T00:00:00')
+    : new Date(round.weeks[weekIndex].date + 'T00:00:00');
+
+  for (let i = (weekIndex > 0 ? weekIndex : 1); i < round.weeks.length; i++) {
+    let nextDate = new Date(prevDate.getTime() + 7 * 86400000);
+    while (isHolidayDate(formatDate(nextDate), holidayList)) {
+      nextDate = new Date(nextDate.getTime() + 7 * 86400000);
+    }
+    round.weeks[i].date = formatDate(nextDate);
+    prevDate = nextDate;
+  }
+
+  const lastWeek = round.weeks[round.weeks.length - 1];
+  round.endDate = lastWeek.date;
+  delete round._preSkipSnapshot;
+
+  return round;
 }
 
 // --- Week status helpers ---

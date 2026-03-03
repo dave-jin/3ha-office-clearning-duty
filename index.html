@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>사무실 청소 당번 보드</title>
-  <meta name="description" content="사무실 청소 당번 스케줄 보드" />
+  <title>세시간전 청소 보드</title>
+  <meta name="description" content="세시간전 사무실 청소 당번 스케줄 보드" />
   <meta name="theme-color" content="#171717" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>" />
+  <link rel="icon" href="assets/logo-icon.png" type="image/png" />
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -55,10 +55,10 @@
   <!-- Header -->
   <header class="sticky top-0 z-40 bg-surface-primary/80 backdrop-blur-lg border-b border-line">
     <div class="max-w-[720px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-      <h1 class="text-base font-semibold flex items-center gap-2">
-        <span class="text-lg">🧹</span>
-        <span>Cleaning Board</span>
-      </h1>
+      <a href="https://3ha.in" target="_blank" rel="noopener" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
+        <img src="assets/logo-icon.png" alt="세시간전" class="h-6 w-6 object-contain" />
+        <span class="text-base font-semibold">청소 보드</span>
+      </a>
       <div class="flex items-center gap-2">
         <span id="save-status" class="text-xs text-content-tertiary"></span>
         <button id="btn-admin" class="w-8 h-8 flex items-center justify-center rounded-lg text-content-secondary hover:text-content-primary hover:bg-surface-tertiary transition-colors" title="관리자 설정">
@@ -89,8 +89,14 @@
   </main>
 
   <!-- Footer -->
-  <footer class="max-w-[720px] mx-auto px-4 sm:px-6 py-8 text-center">
-    <p class="text-xs text-content-tertiary">3ha Office Cleaning Board</p>
+  <footer class="max-w-[720px] mx-auto px-4 sm:px-6 py-8">
+    <div class="flex items-center justify-center gap-2">
+      <a href="https://3ha.in" target="_blank" rel="noopener" class="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
+        <img src="assets/logo-full.png" alt="세시간전" class="h-4 object-contain opacity-40" />
+      </a>
+      <span class="text-content-tertiary text-xs">·</span>
+      <span class="text-xs text-content-tertiary">청소 보드</span>
+    </div>
   </footer>
 
   <!-- App scripts -->
