@@ -1,6 +1,10 @@
-// store.js — localStorage-based data store
+// store.js — API-backed data store with in-memory cache
 
-const PREFIX = 'cleaning_';
+const API_URL = '/api/data';
+
+let _data = null;
+let _saveTimer = null;
+let _onSaveStatus = null;
 
 const INITIAL_MEMBERS = [
   { id: 'iron', nickname: '아이언', nameEn: 'Iron', nameKr: '신성철', role: 'CEO', isActive: true, isExempt: false, exemptReason: '', joinedAt: '2025-07-28', avatarEmoji: '🦸', freePassCount: 0, lastFreePassRound: null, lastCleaningRound: null, lastCleaningWeek: null },
@@ -54,55 +58,181 @@ const CHECKLIST_TEMPLATE = [
   },
 ];
 
+// 2026 Korean public holidays
+const KOREAN_HOLIDAYS_2026 = [
+  { date: '2026-01-01', name: '신정' },
+  { date: '2026-02-16', name: '설날 연휴' },
+  { date: '2026-02-17', name: '설날' },
+  { date: '2026-02-18', name: '설날 연휴' },
+  { date: '2026-03-02', name: '삼일절 대체공휴일' },
+  { date: '2026-05-05', name: '어린이날' },
+  { date: '2026-05-25', name: '부처님 오신 날 대체공휴일' },
+  { date: '2026-06-06', name: '현충일' },
+  { date: '2026-08-15', name: '광복절' },
+  { date: '2026-08-17', name: '광복절 대체공휴일' },
+  { date: '2026-09-24', name: '추석 연휴' },
+  { date: '2026-09-25', name: '추석' },
+  { date: '2026-09-26', name: '추석 연휴' },
+  { date: '2026-09-28', name: '추석 대체공휴일' },
+  { date: '2026-10-03', name: '개천절' },
+  { date: '2026-10-05', name: '개천절 대체공휴일' },
+  { date: '2026-10-09', name: '한글날' },
+  { date: '2026-12-25', name: '크리스마스' },
+];
+
 const DEFAULT_CONFIG = {
   slackWebhookUrl: '',
   slackChannel: '#office-cleaning',
-  weeklyNotifyDay: 4, // Thursday
+  weeklyNotifyDay: 4,
   weeklyNotifyTime: '10:00',
   reminderTime: '15:30',
-  cleaningDay: 4, // Thursday
+  cleaningDay: 4,
   cleaningStartTime: '16:00',
   cleaningEndTime: '17:00',
+  holidays: KOREAN_HOLIDAYS_2026,
 };
 
-// --- helpers ---
-function get(key) {
+// --- Persistence helpers ---
+function persist() {
+  clearTimeout(_saveTimer);
+  if (_onSaveStatus) _onSaveStatus('saving');
+
+  // Save to localStorage immediately as cache
   try {
+    localStorage.setItem('cleaning_cache', JSON.stringify(_data));
+  } catch { /* quota exceeded - ignore */ }
+
+  _saveTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(API_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(_data),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (_onSaveStatus) _onSaveStatus('saved');
+    } catch (e) {
+      console.warn('Backend save failed (localStorage cache still valid):', e.message);
+      if (_onSaveStatus) _onSaveStatus('offline');
+    }
+  }, 500);
+}
+
+function migrateFromOldLocalStorage() {
+  const PREFIX = 'cleaning_';
+  const keys = ['members', 'rounds', 'config', 'changelog', 'pairing_history'];
+  const migrated = {};
+  let found = false;
+
+  for (const key of keys) {
     const raw = localStorage.getItem(PREFIX + key);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
+    if (raw) {
+      try {
+        migrated[key] = JSON.parse(raw);
+        found = true;
+      } catch { /* skip */ }
+    }
   }
+
+  if (found) {
+    // Clean up old keys
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith(PREFIX))
+      .forEach((k) => localStorage.removeItem(k));
+  }
+
+  return found ? migrated : null;
 }
 
-function set(key, value) {
-  localStorage.setItem(PREFIX + key, JSON.stringify(value));
-}
-
-// --- public API ---
+// --- Public API ---
 export const store = {
+  onSaveStatusChange(fn) {
+    _onSaveStatus = fn;
+  },
+
+  async load() {
+    // 1. Try API
+    try {
+      const res = await fetch(API_URL);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data === 'object' && data.members) {
+          _data = data;
+          // Ensure holidays exist in config (migration for existing data)
+          if (_data.config && !_data.config.holidays) {
+            _data.config.holidays = KOREAN_HOLIDAYS_2026;
+            persist();
+          }
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('API fetch failed:', e.message);
+    }
+
+    // 2. Try localStorage cache
+    try {
+      const cached = localStorage.getItem('cleaning_cache');
+      if (cached) {
+        const data = JSON.parse(cached);
+        if (data && data.members) {
+          _data = data;
+          persist(); // Sync to API
+          return;
+        }
+      }
+    } catch { /* skip */ }
+
+    // 3. Try migrating old localStorage format
+    const migrated = migrateFromOldLocalStorage();
+    if (migrated) {
+      _data = {
+        members: migrated.members || INITIAL_MEMBERS,
+        rounds: migrated.rounds || [],
+        config: { ...DEFAULT_CONFIG, ...(migrated.config || {}) },
+        changelog: migrated.changelog || [],
+        pairing_history: migrated.pairing_history || [],
+      };
+      persist();
+      return;
+    }
+
+    // 4. Fresh initialization
+    _data = {
+      members: INITIAL_MEMBERS,
+      rounds: [],
+      config: DEFAULT_CONFIG,
+      changelog: [],
+      pairing_history: [],
+    };
+    persist();
+  },
+
+  isLoaded() {
+    return _data !== null;
+  },
+
   // Members
   getMembers() {
-    return get('members') || [];
+    return _data?.members || [];
   },
   setMembers(members) {
-    set('members', members);
+    _data.members = members;
+    persist();
   },
   getMember(id) {
     return this.getMembers().find((m) => m.id === id);
   },
   updateMember(id, updates) {
-    const members = this.getMembers();
-    const idx = members.findIndex((m) => m.id === id);
+    const idx = _data.members.findIndex((m) => m.id === id);
     if (idx !== -1) {
-      members[idx] = { ...members[idx], ...updates };
-      this.setMembers(members);
+      _data.members[idx] = { ..._data.members[idx], ...updates };
+      persist();
     }
   },
   addMember(member) {
-    const members = this.getMembers();
-    members.push(member);
-    this.setMembers(members);
+    _data.members.push(member);
+    persist();
   },
   getActiveMembers() {
     return this.getMembers().filter((m) => m.isActive && !m.isExempt);
@@ -110,19 +240,17 @@ export const store = {
 
   // Rounds
   getRounds() {
-    return get('rounds') || [];
+    return _data?.rounds || [];
   },
   addRound(round) {
-    const rounds = this.getRounds();
-    rounds.push(round);
-    set('rounds', rounds);
+    _data.rounds.push(round);
+    persist();
   },
   updateRound(round) {
-    const rounds = this.getRounds();
-    const idx = rounds.findIndex((r) => r.id === round.id);
+    const idx = _data.rounds.findIndex((r) => r.id === round.id);
     if (idx !== -1) {
-      rounds[idx] = round;
-      set('rounds', rounds);
+      _data.rounds[idx] = round;
+      persist();
     }
   },
   getCurrentRound() {
@@ -137,58 +265,76 @@ export const store = {
 
   // Pairing history
   getPairingHistory() {
-    return get('pairing_history') || [];
+    return _data?.pairing_history || [];
   },
   addPairingRecord(roundNumber, pairs) {
-    const history = this.getPairingHistory();
     pairs.forEach(([a, b]) => {
-      history.push({ roundNumber, memberA: a, memberB: b });
+      _data.pairing_history.push({ roundNumber, memberA: a, memberB: b });
     });
-    set('pairing_history', history);
+    persist();
   },
 
   // Changelog
   getChangelog() {
-    return get('changelog') || [];
+    return _data?.changelog || [];
   },
   addChangelogEntry(entry) {
-    const log = this.getChangelog();
-    log.unshift({ ...entry, timestamp: new Date().toISOString() });
-    set('changelog', log);
+    _data.changelog.unshift({ ...entry, timestamp: new Date().toISOString() });
+    // Keep last 200 entries
+    if (_data.changelog.length > 200) {
+      _data.changelog = _data.changelog.slice(0, 200);
+    }
+    persist();
   },
 
   // Config
   getConfig() {
-    return get('config') || DEFAULT_CONFIG;
+    return _data?.config || DEFAULT_CONFIG;
   },
   setConfig(config) {
-    set('config', config);
+    _data.config = config;
+    persist();
   },
 
-  // Initialization
-  isInitialized() {
-    return get('initialized') === true;
+  // Holidays (convenience)
+  getHolidays() {
+    return this.getConfig().holidays || [];
   },
-  initialize() {
-    if (this.isInitialized()) return false;
-    this.setMembers(INITIAL_MEMBERS);
-    this.setConfig(DEFAULT_CONFIG);
-    set('initialized', true);
-    return true;
+  setHolidays(holidays) {
+    const config = this.getConfig();
+    config.holidays = holidays;
+    this.setConfig(config);
+  },
+  addHoliday(holiday) {
+    const holidays = this.getHolidays();
+    holidays.push(holiday);
+    holidays.sort((a, b) => a.date.localeCompare(b.date));
+    this.setHolidays(holidays);
+  },
+  removeHoliday(date) {
+    this.setHolidays(this.getHolidays().filter((h) => h.date !== date));
+  },
+
+  // Initialization check
+  needsFirstRound() {
+    return this.getRounds().length === 0;
   },
 
   // Reset
   reset() {
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith(PREFIX))
-      .forEach((k) => localStorage.removeItem(k));
+    _data = {
+      members: INITIAL_MEMBERS,
+      rounds: [],
+      config: DEFAULT_CONFIG,
+      changelog: [],
+      pairing_history: [],
+    };
+    persist();
+    try { localStorage.removeItem('cleaning_cache'); } catch { /* ignore */ }
   },
 
   // Constants
   getChecklistTemplate() {
     return CHECKLIST_TEMPLATE;
-  },
-  getInitialMembers() {
-    return INITIAL_MEMBERS;
   },
 };
