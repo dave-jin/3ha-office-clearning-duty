@@ -296,15 +296,15 @@ export function getCurrentWeekIndex(round) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // Find the most recent non-skipped week that has started
-  for (let i = round.weeks.length - 1; i >= 0; i--) {
+  // Find the first non-skipped week whose date is today or in the future (upcoming/active)
+  for (let i = 0; i < round.weeks.length; i++) {
     if (round.weeks[i].isSkipped) continue;
     const weekDate = new Date(round.weeks[i].date + 'T00:00:00');
-    if (today >= weekDate) return i;
+    if (weekDate >= today) return i;
   }
 
-  // If all past weeks are skipped or round hasn't started, find first non-skipped
-  for (let i = 0; i < round.weeks.length; i++) {
+  // All non-skipped weeks are in the past — return the last non-skipped week
+  for (let i = round.weeks.length - 1; i >= 0; i--) {
     if (!round.weeks[i].isSkipped) return i;
   }
 
@@ -339,6 +339,14 @@ export function formatDateKr(dateStr) {
   const day = d.getDate();
   const dow = days[d.getDay()];
   return `${y}년 ${m}월 ${day}일 (${dow})`;
+}
+
+export function getTodayStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 export function formatDateShort(dateStr) {

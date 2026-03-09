@@ -10,6 +10,7 @@ import {
   forceUnskipWeek,
   formatDateKr,
   formatDateShort,
+  getTodayStr,
 } from './engine.js';
 
 // ── State ──
@@ -107,14 +108,16 @@ function updateWeekStatuses() {
   round.weeks.forEach((week, i) => {
     if (week.isSkipped) {
       week.status = 'skipped';
-    } else if (i < currentIdx) {
+      return;
+    }
+    const weekDate = new Date(week.date + 'T00:00:00');
+    if (today > weekDate) {
+      // Cleaning day has passed → done
       week.status = 'done';
     } else if (i === currentIdx) {
-      const weekDate = new Date(week.date + 'T00:00:00');
-      const nextWeek = new Date(weekDate);
-      nextWeek.setDate(nextWeek.getDate() + 7);
-      week.status = today >= weekDate && today < nextWeek ? 'active' : (today < weekDate ? 'upcoming' : 'done');
-    } else {
+      // Today is the cleaning day or it's the next upcoming week
+      week.status = 'active';
+    } else if (today <= weekDate) {
       week.status = 'upcoming';
     }
   });
@@ -218,11 +221,24 @@ function renderBoard() {
   const next1 = nextWeek ? getMember(nextWeek.memberIds[0]) : null;
   const next2 = nextWeek ? getMember(nextWeek.memberIds[1]) : null;
 
+  const todayStr = getTodayStr();
+  const isCleaningDay = todayStr === currentWeek.date;
+  const isPast = todayStr > currentWeek.date;
+  const heroLabel = isPast ? '완료된 당번' : isCleaningDay ? '오늘 청소일!' : '다음 청소 당번';
+  const heroBorderClass = isPast ? 'border-content-tertiary/30' : 'border-accent/50';
+
   return `
+    <!-- Today's date -->
+    <div class="flex items-center gap-2 mb-4 text-sm text-content-secondary">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      <span>오늘</span>
+      <span class="font-medium text-content-primary">${formatDateKr(todayStr)}</span>
+    </div>
+
     <!-- Hero Card -->
-    <div class="border border-accent/50 bg-surface-secondary rounded-2xl p-6 sm:p-8">
+    <div class="${heroBorderClass} border bg-surface-secondary rounded-2xl p-6 sm:p-8">
       <div class="flex items-center justify-between mb-6">
-        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-accent/15 text-accent">이번 주 당번</span>
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${isPast ? 'bg-content-tertiary/15 text-content-tertiary' : 'bg-accent/15 text-accent'}">${heroLabel}</span>
         <span class="text-xs font-mono text-content-tertiary">Round ${round.number} · W${currentWeek.weekNumber}</span>
       </div>
 
@@ -319,7 +335,7 @@ function renderBoard() {
             </div>
             <div class="shrink-0 ml-2">
               ${isSkipped ? '<span class="text-xs px-2 py-0.5 rounded-full bg-surface-tertiary text-content-tertiary">스킵</span>'
-                : isCurrent ? '<span class="text-xs px-2 py-0.5 rounded-full bg-accent/15 text-accent">이번 주</span>'
+                : isCurrent ? `<span class="text-xs px-2 py-0.5 rounded-full bg-accent/15 text-accent">${todayStr === week.date ? '오늘' : '다음'}</span>`
                 : isDone ? '<svg class="w-4 h-4 text-content-tertiary" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>'
                 : ''}
             </div>
